@@ -6,30 +6,47 @@ import org.springframework.stereotype.Service;
 import org.springframework.util.ResourceUtils;
 
 import javax.annotation.PostConstruct;
+import java.io.BufferedReader;
 import java.io.File;
+import java.io.FileInputStream;
 import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Paths;
+import java.io.InputStreamReader;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Map;
+import java.util.Set;
 
 @Service
 public class DirectPathService {
 
-    private Map<String, String> forwardMap;
-    private Map<String, String> reverseMap;
     Logger log = LoggerFactory.getLogger(DirectPathService.class);
+
+    private Map<String, Set<String>> graph = new HashMap<>();
+
+    public final static String YES = "yes";
+
+    public final static String NO = "no";
 
     @PostConstruct
     public void init() {
         try {
             File file = ResourceUtils.getFile("classpath:city.txt");
-            forwardMap = Files.lines(Paths.get(file.getPath())).map(s -> s.split(",")).
-                    collect(HashMap::new, (map, k) -> map.put(k[0], k[1].trim()), Map::putAll);
-            reverseMap = Files.lines(Paths.get(file.getPath())).map(s -> s.split(",")).
-                    collect(HashMap::new, (map, k) -> map.put(k[1].trim(), k[0]), Map::putAll);
-            log.info("" + forwardMap);
-            log.info("" + reverseMap);
+            try (BufferedReader br
+                     = new BufferedReader(new InputStreamReader(new FileInputStream(file)))) {
+                String line;
+                while ((line = br.readLine()) != null) {
+                    int index = line.indexOf(",");
+                    if (index > 0) {
+                        String city1 = line.substring(0, index).trim();
+                        String city2 = line.substring(index + 1).trim();
+                        graph.computeIfAbsent(city1, k -> new HashSet<>()).add(city2);
+                        graph.computeIfAbsent(city2, k -> new HashSet<>()).add(city1);
+                    }
+                }
+            } catch (IOException e) {
+                System.err.println("Error occurred while building a graph => " + e.getMessage());
+            }
+            log.info("" + graph);
         } catch (IOException e) {
             log.error("IOException", e);
         }
@@ -37,18 +54,26 @@ public class DirectPathService {
     }
 
     public String isDirectPath(String origin, String destination) {
-        if (findPath(forwardMap, origin, destination)) return "yes";
-        if (findPath(reverseMap, origin, destination)) return "yes";
-        return "no";
+        return isDirectPath(origin, destination, new HashSet<>());
     }
 
-    private boolean findPath(Map<String,String> map, String origin, String destination) {
-        String res = map.get(origin);
-        while (res != null) {
-            if(res.equals(destination))
-                return true;
-            res = map.get(res);
+    public String isDirectPath(String origin, String destination, Set<String> visited) {
+        if (!graph.containsKey(origin))
+            return NO;
+
+        if (graph.get(origin).contains(destination)) {
+            return YES;
         }
-        return false;
+        visited.add(origin);
+
+        for (String city : graph.get(origin)) {
+            if (!visited.contains(city)) {
+                String res = isDirectPath(city, destination, visited);
+                if (YES.equals(res)) {
+                    return YES;
+                }
+            }
+        }
+        return NO;
     }
 }
